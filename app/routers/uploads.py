@@ -31,7 +31,7 @@ def upload_file(
 
     db.add(uploaded_file)
     db.commit()
-    db.refresh(upload_file)
+    db.refresh(uploaded_file)
     return {
         "id": uploaded_file.id,
         "filename": uploaded_file.filename,
