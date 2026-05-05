@@ -1,0 +1,46 @@
+body {
+    font-family: Arial, sans-serif;
+    background: #f5f5f5;
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    max-width: 700px;
+    margin: 60px auto;
+    background: white;
+    padding: 32px;
+    border-radius: 12px;
+}
+
+h1 {
+    margin-top: 0;
+}
+
+form {
+    margin-top: 24px;
+}
+
+label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+}
+
+input {
+    display: block;
+    margin-bottom: 16px;
+}
+
+button {
+    padding: 10px 16px;
+    cursor: pointer;
+}
+
+nav {
+    margin-top: 32px;
+}
+
+nav a {
+    margin-right: 16px;
+}
