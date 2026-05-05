@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Upload File</title>
+
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container">
+        <h1>Upload File</h1>
+
+        <p>Select a file and submit it to the upload endpoint.</p>
+
+        <form action="/uploads/" method="post" enctype="multipart/form-data">
+            <label for="file">Choose a file:</label>
+
+            <input 
+                type="file" 
+                id="file" 
+                name="file" 
+                required
+            >
+
+            <button type="submit">Upload</button>
+        </form>
+
+        <nav>
+            <a href="/">Home</a>
+            <a href="/upload">Upload File</a>
+        </nav>
+    </main>
+</body>
+</html>
