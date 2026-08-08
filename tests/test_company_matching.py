@@ -1,6 +1,30 @@
 import match_document_companies as matcher
 
 
+class RecordingCursor:
+    rowcount = 0
+
+    def __init__(self):
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def execute(self, sql, params=None):
+        self.calls.append((sql, params))
+
+
+class RecordingConnection:
+    def __init__(self):
+        self.cursor_instance = RecordingCursor()
+
+    def cursor(self):
+        return self.cursor_instance
+
+
 def test_choose_company_match_prefers_exact_company_number():
     metadata = {
         "company_number": " 05218004 ",
@@ -114,3 +138,14 @@ def test_choose_company_match_returns_none_below_fuzzy_threshold():
         )
         is None
     )
+
+
+def test_exact_database_match_accepts_optional_raw_document_scope():
+    conn = RecordingConnection()
+
+    matcher.match_exact_company_numbers(conn, raw_document_ids=[101, 102])
+
+    sql, params = conn.cursor_instance.calls[0]
+
+    assert "dm.raw_document_id = ANY(%(raw_document_ids)s)" in sql
+    assert params == {"raw_document_ids": [101, 102]}

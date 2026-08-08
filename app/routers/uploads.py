@@ -462,6 +462,11 @@ def run_uploaded_document_pipeline(raw_document_ids: list[int]) -> None:
     import psycopg2
     import match_document_companies
 
+    raw_document_ids = list(dict.fromkeys(raw_document_ids))
+
+    if not raw_document_ids:
+        return
+
     conn = psycopg2.connect(DATABASE_URL)
 
     try:
@@ -482,6 +487,7 @@ def run_uploaded_document_pipeline(raw_document_ids: list[int]) -> None:
             ),
             exact_only=False,
             dry_run=False,
+            raw_document_ids=raw_document_ids,
         )
 
     finally:

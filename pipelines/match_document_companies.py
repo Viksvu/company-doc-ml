@@ -276,7 +276,10 @@ def require_companies_table(conn) -> None:
         )
 
 
-def match_exact_company_numbers(conn) -> int:
+def match_exact_company_numbers(
+    conn,
+    raw_document_ids: list[int] | None = None,
+) -> int:
     with conn.cursor() as cur:
         cur.execute("""
             WITH selected_conflicts AS (
@@ -303,6 +306,10 @@ def match_exact_company_numbers(conn) -> int:
                        )
                 WHERE rd.source = 'user_upload'
                   AND uf.selected_company_number IS NOT NULL
+                  AND (
+                        %(raw_document_ids)s IS NULL
+                        OR dm.raw_document_id = ANY(%(raw_document_ids)s)
+                  )
                   AND (
                         (
                             dm.company_number IS NOT NULL
@@ -428,6 +435,10 @@ def match_exact_company_numbers(conn) -> int:
             LEFT JOIN selected_conflicts selected_conflict
                 ON selected_conflict.raw_document_id = dm.raw_document_id
             WHERE selected_conflict.raw_document_id IS NULL
+              AND (
+                    %(raw_document_ids)s IS NULL
+                    OR dm.raw_document_id = ANY(%(raw_document_ids)s)
+              )
             ON CONFLICT (raw_document_id)
             DO UPDATE SET
                 company_id = EXCLUDED.company_id,
@@ -442,7 +453,9 @@ def match_exact_company_numbers(conn) -> int:
                 match_details = EXCLUDED.match_details,
                 updated_at = NOW()
             WHERE document_company_matches.manual_override = FALSE;
-        """)
+        """, {
+            "raw_document_ids": raw_document_ids,
+        })
 
         exact_matches = cur.rowcount
 
@@ -453,6 +466,7 @@ def match_fuzzy_company_names(
     conn,
     candidate_threshold: float,
     auto_accept_threshold: float,
+    raw_document_ids: list[int] | None = None,
 ) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT set_limit(%s);", (candidate_threshold,))
@@ -532,6 +546,10 @@ def match_fuzzy_company_names(
                     LIMIT 1
                 ) best ON TRUE
                 WHERE existing_match.raw_document_id IS NULL
+                  AND (
+                        %(raw_document_ids)s IS NULL
+                        OR dm.raw_document_id = ANY(%(raw_document_ids)s)
+                  )
                   AND dm.company_name IS NOT NULL
                   AND normalise_company_name_for_match(dm.company_name)
                       IS NOT NULL
@@ -562,6 +580,7 @@ def match_fuzzy_company_names(
         """, {
             "candidate_threshold": candidate_threshold,
             "auto_accept_threshold": auto_accept_threshold,
+            "raw_document_ids": raw_document_ids,
         })
 
         fuzzy_matches = cur.rowcount
@@ -569,7 +588,10 @@ def match_fuzzy_company_names(
     return fuzzy_matches
 
 
-def get_match_summary(conn) -> list[tuple]:
+def get_match_summary(
+    conn,
+    raw_document_ids: list[int] | None = None,
+) -> list[tuple]:
     with conn.cursor() as cur:
         cur.execute("""
             SELECT
@@ -578,21 +600,36 @@ def get_match_summary(conn) -> list[tuple]:
                 review_required,
                 COUNT(*) AS match_count
             FROM document_company_matches
+            WHERE (
+                %(raw_document_ids)s IS NULL
+                OR raw_document_id = ANY(%(raw_document_ids)s)
+            )
             GROUP BY match_method, is_accepted, review_required
             ORDER BY match_method, is_accepted DESC, review_required;
-        """)
+        """, {
+            "raw_document_ids": raw_document_ids,
+        })
         return cur.fetchall()
 
 
-def get_unmatched_count(conn) -> int:
+def get_unmatched_count(
+    conn,
+    raw_document_ids: list[int] | None = None,
+) -> int:
     with conn.cursor() as cur:
         cur.execute("""
             SELECT COUNT(*)
             FROM document_metadata dm
             LEFT JOIN document_company_matches dcm
                 ON dcm.raw_document_id = dm.raw_document_id
-            WHERE dcm.raw_document_id IS NULL;
-        """)
+            WHERE dcm.raw_document_id IS NULL
+              AND (
+                    %(raw_document_ids)s IS NULL
+                    OR dm.raw_document_id = ANY(%(raw_document_ids)s)
+              );
+        """, {
+            "raw_document_ids": raw_document_ids,
+        })
         return cur.fetchone()[0]
 
 
@@ -601,6 +638,7 @@ def run_matching(
     auto_accept_threshold: float,
     exact_only: bool,
     dry_run: bool,
+    raw_document_ids: list[int] | None = None,
 ) -> None:
     conn = psycopg2.connect(DATABASE_URL)
 
@@ -608,7 +646,10 @@ def run_matching(
         require_companies_table(conn)
         create_matching_objects(conn)
 
-        exact_matches = match_exact_company_numbers(conn)
+        exact_matches = match_exact_company_numbers(
+            conn,
+            raw_document_ids=raw_document_ids,
+        )
         fuzzy_matches = 0
 
         if not exact_only:
@@ -616,10 +657,17 @@ def run_matching(
                 conn=conn,
                 candidate_threshold=candidate_threshold,
                 auto_accept_threshold=auto_accept_threshold,
+                raw_document_ids=raw_document_ids,
             )
 
-        summary = get_match_summary(conn)
-        unmatched_count = get_unmatched_count(conn)
+        summary = get_match_summary(
+            conn,
+            raw_document_ids=raw_document_ids,
+        )
+        unmatched_count = get_unmatched_count(
+            conn,
+            raw_document_ids=raw_document_ids,
+        )
 
         if dry_run:
             conn.rollback()
@@ -627,6 +675,8 @@ def run_matching(
             conn.commit()
 
         print("Company matching complete")
+        if raw_document_ids is not None:
+            print(f"Scoped raw documents: {len(raw_document_ids)}")
         print(f"Exact company-number matches: {exact_matches}")
         print(f"Fuzzy company-name matches: {fuzzy_matches}")
         print(f"Unmatched metadata rows: {unmatched_count}")
