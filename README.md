@@ -33,7 +33,7 @@ cp .env.example .env
 Edit `.env` if your PostgreSQL credentials differ:
 
 ```bash
-DATABASE_URL=postgresql://postgres:2219@localhost:5432/company_app
+DATABASE_URL=postgresql://postgres:1234@localhost:5432/company_app
 BASIC_OCR_DPI=180
 BASIC_OCR_MAX_IMAGE_SIDE=1800
 BASIC_OCR_MAX_SCANNED_PAGES=0
