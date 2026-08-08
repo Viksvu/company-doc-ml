@@ -1,8 +1,9 @@
-# CompanyCentral
-
 Historical Companies House filing processor that ingests company documents,
 extracts filing data, matches documents to company records, and supports company
 search and document review through a lightweight FastAPI app.
+
+<img width="2717" height="1499" alt="image" src="https://github.com/user-attachments/assets/c5fb0239-922c-481c-8fdf-f5bcfd702f5a" />
+
 
 ## Repository Contents
 
