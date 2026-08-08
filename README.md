@@ -18,7 +18,7 @@ search and document review through a lightweight FastAPI app.
 Create a virtual environment from the project root:
 
 ```bash
-cd company-app
+cd company-doc-parser
 python3 -m venv ../venv
 source ../venv/bin/activate
 pip install -r requirements.txt
