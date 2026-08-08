@@ -131,6 +131,14 @@ def get_legacy_primary_zone(text: str) -> str:
 
 
 def normalise_company_number(value: str) -> str | None:
+    raw_compact = re.sub(r"[^A-Za-z0-9$]", "", value or "").upper()
+    raw_compact = raw_compact.replace("$C", "SC")
+    raw_match = re.fullmatch(r"([A-Z]{2})(\d{6,8})", raw_compact)
+
+    if raw_match:
+        prefix, digits = raw_match.groups()
+        return f"{prefix}{digits}"
+
     decoded = decode_ocr_digits(value)
     decoded = decoded.replace("$C", "SC").replace("$c", "SC")
     compact = re.sub(r"[^A-Za-z0-9]", "", decoded).upper()

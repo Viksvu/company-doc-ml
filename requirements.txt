@@ -14,6 +14,7 @@ MarkupSafe==3.0.3
 paddleocr
 paddlepaddle
 psycopg2-binary==2.9.12
+pytest==8.4.2
 pillow
 pydantic==2.13.3
 pydantic_core==2.46.3

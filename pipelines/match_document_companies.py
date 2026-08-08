@@ -1,4 +1,6 @@
 import argparse
+import re
+from difflib import SequenceMatcher
 
 import psycopg2
 
@@ -8,6 +10,122 @@ DATABASE_URL = get_database_url()
 
 DEFAULT_CANDIDATE_THRESHOLD = 0.75
 DEFAULT_AUTO_ACCEPT_THRESHOLD = 0.90
+DEFAULT_AMBIGUITY_MARGIN = 0.03
+
+
+def normalise_company_number_for_match(value: str | None) -> str | None:
+    value = re.sub(r"[^A-Za-z0-9]", "", value or "").upper()
+
+    return value or None
+
+
+def normalise_company_name_for_match(value: str | None) -> str | None:
+    value = (value or "").upper()
+    value = re.sub(
+        r"\b(PUBLIC LIMITED COMPANY|PRIVATE LIMITED COMPANY|LIMITED|LTD|PLC|LLP|THE)\b\.?",
+        "",
+        value,
+    )
+    value = re.sub(r"[^A-Z0-9]+", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+
+    return value or None
+
+
+def score_company_name_similarity(
+    source_name: str | None,
+    candidate_name: str | None,
+) -> float:
+    source_name = normalise_company_name_for_match(source_name)
+    candidate_name = normalise_company_name_for_match(candidate_name)
+
+    if not source_name or not candidate_name:
+        return 0.0
+
+    return round(
+        SequenceMatcher(None, source_name, candidate_name).ratio(),
+        4,
+    )
+
+
+def choose_company_match(
+    metadata: dict,
+    companies: list[dict],
+    candidate_threshold: float = DEFAULT_CANDIDATE_THRESHOLD,
+    auto_accept_threshold: float = DEFAULT_AUTO_ACCEPT_THRESHOLD,
+    ambiguity_margin: float = DEFAULT_AMBIGUITY_MARGIN,
+) -> dict | None:
+    source_number = normalise_company_number_for_match(
+        metadata.get("company_number")
+    )
+
+    if source_number:
+        for company in companies:
+            candidate_number = normalise_company_number_for_match(
+                company.get("company_number")
+            )
+
+            if candidate_number == source_number:
+                return {
+                    "company": company,
+                    "match_method": "exact_metadata_company_number",
+                    "match_score": 1.0,
+                    "is_accepted": True,
+                    "review_required": False,
+                }
+
+    source_name = metadata.get("company_name")
+
+    scored_candidates = [
+        {
+            "company": company,
+            "match_score": score_company_name_similarity(
+                source_name,
+                company.get("official_company_name"),
+            ),
+        }
+        for company in companies
+    ]
+    scored_candidates = [
+        candidate
+        for candidate in scored_candidates
+        if candidate["match_score"] >= candidate_threshold
+    ]
+
+    if not scored_candidates:
+        return None
+
+    scored_candidates.sort(
+        key=lambda candidate: (
+            candidate["match_score"],
+            candidate["company"].get("company_status") == "Active",
+        ),
+        reverse=True,
+    )
+
+    best = scored_candidates[0]
+    second = scored_candidates[1] if len(scored_candidates) > 1 else None
+    is_ambiguous = (
+        second is not None
+        and best["match_score"] - second["match_score"] <= ambiguity_margin
+    )
+    is_accepted = (
+        best["match_score"] >= auto_accept_threshold
+        and not is_ambiguous
+    )
+
+    return {
+        "company": best["company"],
+        "match_method": (
+            "fuzzy_company_name_auto"
+            if is_accepted
+            else "fuzzy_company_name_review"
+        ),
+        "match_score": best["match_score"],
+        "is_accepted": is_accepted,
+        "review_required": not is_accepted,
+        "is_ambiguous": is_ambiguous,
+    }
 
 
 def create_matching_objects(conn) -> None:
