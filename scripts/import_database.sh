@@ -6,7 +6,7 @@ if [ "$#" -ne 1 ]; then
   exit 1
 fi
 
-DATABASE_URL="${DATABASE_URL:-postgresql://postgres:2219@localhost:5432/company_app}"
+DATABASE_URL="${DATABASE_URL:-postgresql://postgres:1234@localhost:5432/company_app}"
 
 pg_restore \
   --clean \

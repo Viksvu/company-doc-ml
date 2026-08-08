@@ -184,7 +184,6 @@ Use these initial statuses:
 
 - PDF - `processing_status = 'pdf_downloaded'`
 - HTML - `processing_status = 'html_detected'`
-- image - `processing_status = 'ready_for_ocr'`
 
 Then run the rest of the pipeline without the download step:
 
@@ -313,3 +312,14 @@ Arguments:
 
 If you do not pass `--keep-metadata`, existing metadata is deleted for re-OCRed
 documents so `extract_metadata.py` can parse the new text.
+
+## Tests
+
+Run the unit test suite from the repository root:
+
+```bash
+python -m pytest
+```
+
+The tests use synthetic fixtures and do not require OCR binaries, network
+access, external APIs, or a running PostgreSQL instance.
