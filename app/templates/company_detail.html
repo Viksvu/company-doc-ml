@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ company.official_company_name }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="topbar">
+        <a href="/" class="brand">CompanyCentral</a>
+        <nav class="topnav">
+            <a href="/companies">Companies</a>
+            <a href="/upload">Upload</a>
+        </nav>
+    </header>
+
+    <main class="container company-detail-container">
+        <nav class="back-nav">
+            <a href="/companies">Back to company search</a>
+        </nav>
+
+        <section class="page-heading company-heading">
+            <div>
+                <p class="eyebrow">Company record</p>
+                <h1>{{ company.official_company_name }}</h1>
+            </div>
+            <span class="company-number">{{ company.company_number }}</span>
+        </section>
+
+        <section class="metadata-grid">
+            <article class="metadata-panel">
+                <h2>Company Metadata</h2>
+                <dl>
+                    <dt>Status</dt>
+                    <dd>{{ company.company_status or "Unknown" }}</dd>
+                    <dt>Type</dt>
+                    <dd>{{ company.company_type or "Unknown" }}</dd>
+                    <dt>Incorporated</dt>
+                    <dd>{{ company.incorporation_date or "Unknown" }}</dd>
+                    <dt>Dissolved</dt>
+                    <dd>{{ company.dissolution_date or "Not dissolved" }}</dd>
+                </dl>
+            </article>
+
+            <article class="metadata-panel">
+                <h2>Registered Address</h2>
+                {% if company.registered_address %}
+                    <address>
+                        {% for value in company.registered_address.values() %}
+                            {{ value }}{% if not loop.last %}<br>{% endif %}
+                        {% endfor %}
+                    </address>
+                {% else %}
+                    <p class="empty-note">No registered address stored.</p>
+                {% endif %}
+            </article>
+
+            <article class="metadata-panel metadata-panel-wide">
+                <h2>SIC Codes</h2>
+                {% if company.sic_codes %}
+                    <ul class="sic-list">
+                        {% for sic_code in company.sic_codes %}
+                            <li>{{ sic_code }}</li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="empty-note">No SIC codes stored.</p>
+                {% endif %}
+            </article>
+        </section>
+
+        <section class="documents-section">
+            <div class="section-header">
+                <div>
+                    <p class="eyebrow">Filled documents</p>
+                    <h2>Matched Documents</h2>
+                </div>
+                <span id="document-count" class="batch-status">Loading</span>
+            </div>
+
+            <form id="document-filter-form" class="document-filter-form">
+                <label>
+                    Search text
+                    <input
+                        type="search"
+                        id="document-query"
+                        name="q"
+                        autocomplete="off"
+                        placeholder="AP01, 02926555, director, filename"
+                    >
+                </label>
+
+                <label>
+                    Document type
+                    <select id="document-type" name="document_type">
+                        <option value="">All document types</option>
+                        <option value="accounts">Accounts</option>
+                        <option value="annual_return">Annual return</option>
+                        <option value="confirmation_statement">Confirmation statement</option>
+                        <option value="director_appointment">Director appointment</option>
+                        <option value="director_termination">Director termination</option>
+                        <option value="return_of_allotment">Return of allotment</option>
+                        <option value="special_resolution">Special resolution</option>
+                        <option value="unknown">Unknown</option>
+                    </select>
+                </label>
+
+                <label>
+                    Form type
+                    <input
+                        type="search"
+                        id="form-type"
+                        name="form_type"
+                        autocomplete="off"
+                        placeholder="AP01, CS01, 288a"
+                    >
+                </label>
+
+                <label>
+                    Review status
+                    <select id="review-status" name="review_status">
+                        <option value="all">All statuses</option>
+                        <option value="accepted">Accepted</option>
+                        <option value="review">Needs review</option>
+                        <option value="conflict">Conflicts</option>
+                        <option value="errors">Errors</option>
+                    </select>
+                </label>
+
+                <button type="submit">Apply</button>
+            </form>
+
+            <p id="document-status" class="status-note"></p>
+            <div id="document-results" class="document-results"></div>
+        </section>
+    </main>
+
+    <script>
+        const companyNumber = {{ company.company_number | tojson }};
+        const form = document.getElementById("document-filter-form");
+        const countNode = document.getElementById("document-count");
+        const statusNode = document.getElementById("document-status");
+        const resultsNode = document.getElementById("document-results");
+
+        function valueOrDash(value) {
+            return value || "-";
+        }
+
+        function confidence(value) {
+            if (value === null || value === undefined) {
+                return "-";
+            }
+
+            return Number(value).toFixed(3);
+        }
+
+        function renderDocuments(documents) {
+            resultsNode.innerHTML = "";
+            countNode.textContent = `${documents.length} document${documents.length === 1 ? "" : "s"}`;
+
+            if (documents.length === 0) {
+                statusNode.textContent = "No documents matched these filters.";
+                return;
+            }
+
+            statusNode.textContent = "";
+
+            documents.forEach((matchedDocument) => {
+                const article = document.createElement("article");
+                article.className = "document-card";
+
+                const header = document.createElement("div");
+                header.className = "document-card-header";
+
+                const title = document.createElement("h3");
+                title.textContent = (
+                    matchedDocument.filename
+                    || matchedDocument.transaction_id
+                );
+
+                const link = document.createElement("a");
+                link.className = "document-view-link";
+                link.href = (
+                    `/companies/${encodeURIComponent(companyNumber)}`
+                    + `/documents/${matchedDocument.raw_document_id}/file`
+                );
+                link.target = "_blank";
+                link.rel = "noopener";
+                link.textContent = "View";
+
+                header.appendChild(title);
+                header.appendChild(link);
+
+                const details = document.createElement("dl");
+                [
+                    ["Document type", matchedDocument.document_type],
+                    ["Form type", matchedDocument.form_type],
+                    ["Filing date", matchedDocument.filing_date],
+                    ["Status", matchedDocument.processing_status],
+                    ["Match", `${valueOrDash(matchedDocument.match_method)} (${confidence(matchedDocument.match_score)})`],
+                    ["Parser confidence", confidence(matchedDocument.confidence_score)],
+                    ["Extracted company", [matchedDocument.extracted_company_number, matchedDocument.extracted_company_name].filter(Boolean).join(" - ")],
+                    ["PDF metadata", [matchedDocument.pdf_metadata_company_number, matchedDocument.pdf_metadata_company_name].filter(Boolean).join(" - ")],
+                    ["Selected company", [matchedDocument.selected_company_number, matchedDocument.selected_company_name].filter(Boolean).join(" - ")],
+                ].forEach(([label, value]) => {
+                    if (!value) {
+                        return;
+                    }
+
+                    const term = document.createElement("dt");
+                    term.textContent = label;
+
+                    const description = document.createElement("dd");
+                    description.textContent = value;
+
+                    details.appendChild(term);
+                    details.appendChild(description);
+                });
+
+                const preview = document.createElement("pre");
+                preview.className = "document-preview";
+                preview.textContent = (
+                    matchedDocument.text_preview
+                    || "No extracted text stored."
+                );
+
+                article.appendChild(header);
+                article.appendChild(details);
+                article.appendChild(preview);
+                resultsNode.appendChild(article);
+            });
+        }
+
+        async function loadDocuments() {
+            const params = new URLSearchParams();
+            const formData = new FormData(form);
+
+            for (const [key, value] of formData.entries()) {
+                const trimmed = String(value).trim();
+
+                if (trimmed) {
+                    params.set(key, trimmed);
+                }
+            }
+
+            statusNode.textContent = "Loading documents...";
+            countNode.textContent = "Loading";
+
+            const response = await fetch(
+                `/companies/${encodeURIComponent(companyNumber)}/documents?${params.toString()}`
+            );
+            const payload = await response.json();
+
+            if (!response.ok) {
+                statusNode.textContent = payload.detail || "Could not load documents.";
+                countNode.textContent = "Error";
+                resultsNode.innerHTML = "";
+                return;
+            }
+
+            renderDocuments(payload.documents);
+        }
+
+        form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            loadDocuments();
+        });
+
+        let debounceTimer;
+        document.getElementById("document-query").addEventListener("input", () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(loadDocuments, 350);
+        });
+
+        document.getElementById("document-type").addEventListener("change", loadDocuments);
+        document.getElementById("review-status").addEventListener("change", loadDocuments);
+
+        loadDocuments();
+    </script>
+</body>
+</html>

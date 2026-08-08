@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Company Search</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="topbar">
+        <a href="/" class="brand">CompanyCentral</a>
+        <nav class="topnav">
+            <a href="/companies">Companies</a>
+            <a href="/upload">Upload</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        <section class="page-heading">
+            <p class="eyebrow">Company lookup</p>
+            <h1>Search UK companies</h1>
+        </section>
+
+        <form id="company-search-form" class="search-form">
+            <label for="company-query">Company name or number</label>
+            <div class="search-row">
+                <input
+                    type="search"
+                    id="company-query"
+                    name="q"
+                    autocomplete="off"
+                    placeholder="02926555 or Shrinkit"
+                    required
+                    minlength="2"
+                >
+                <button type="submit">Search</button>
+            </div>
+        </form>
+
+        <section id="company-search-status" class="status-note"></section>
+        <section id="company-search-results" class="company-search-results"></section>
+    </main>
+
+    <script>
+        const form = document.getElementById("company-search-form");
+        const queryInput = document.getElementById("company-query");
+        const statusNode = document.getElementById("company-search-status");
+        const resultsNode = document.getElementById("company-search-results");
+
+        function renderResults(results) {
+            resultsNode.innerHTML = "";
+
+            if (results.length === 0) {
+                statusNode.textContent = "No companies found.";
+                return;
+            }
+
+            statusNode.textContent = `${results.length} result${results.length === 1 ? "" : "s"}`;
+
+            results.forEach((company) => {
+                const article = document.createElement("a");
+                article.className = "company-card company-card-link";
+                article.href = `/companies/${encodeURIComponent(company.company_number)}`;
+
+                const header = document.createElement("div");
+                header.className = "company-card-header";
+
+                const name = document.createElement("h2");
+                name.textContent = company.official_company_name;
+
+                const number = document.createElement("span");
+                number.className = "company-number";
+                number.textContent = company.company_number;
+
+                header.appendChild(name);
+                header.appendChild(number);
+
+                const details = document.createElement("dl");
+                [
+                    ["Status", company.company_status],
+                    ["Type", company.company_type],
+                    ["Incorporated", company.incorporation_date],
+                    ["Dissolved", company.dissolution_date],
+                    ["Match", `${company.match_method} (${Number(company.score).toFixed(3)})`],
+                ].forEach(([label, value]) => {
+                    if (!value) {
+                        return;
+                    }
+
+                    const term = document.createElement("dt");
+                    term.textContent = label;
+
+                    const description = document.createElement("dd");
+                    description.textContent = value;
+
+                    details.appendChild(term);
+                    details.appendChild(description);
+                });
+
+                article.appendChild(header);
+                article.appendChild(details);
+                resultsNode.appendChild(article);
+            });
+        }
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            const query = queryInput.value.trim();
+
+            if (query.length < 2) {
+                return;
+            }
+
+            statusNode.textContent = "Searching...";
+            resultsNode.innerHTML = "";
+
+            const response = await fetch(`/companies/search?q=${encodeURIComponent(query)}`);
+            const payload = await response.json();
+
+            if (!response.ok) {
+                statusNode.textContent = payload.detail || "Search failed.";
+                return;
+            }
+
+            renderResults(payload.results);
+        });
+    </script>
+</body>
+</html>

@@ -5,3 +5,9 @@ __pycache__/
 *.pyc
 .env
 uploaded_file/
+data/raw/
+data/raw/uploads/
+exports/
+*.log
+*.dump
+.DS_Store

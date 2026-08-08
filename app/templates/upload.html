@@ -2,32 +2,232 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Upload File</title>
+    <title>Upload Documents</title>
     <link rel="stylesheet" href="/static/style.css">
-
 </head>
 <body>
+    <header class="topbar">
+        <a href="/" class="brand">CompanyCentral</a>
+        <nav class="topnav">
+            <a href="/companies">Companies</a>
+            <a href="/upload">Upload</a>
+        </nav>
+    </header>
+
     <main class="container">
-        <h1>Upload File</h1>
+        <section class="page-heading">
+            <p class="eyebrow">Document intake</p>
+            <h1>Upload documents for extraction</h1>
+        </section>
 
-        <p>Select a file and submit it to the upload endpoint.</p>
+        <form id="upload-form" action="/uploads/" method="post" enctype="multipart/form-data">
+            <fieldset>
+                <legend>Company metadata</legend>
 
-        <form action="/uploads/" method="post" enctype="multipart/form-data">
-            <label for="file">Choose a file:</label>
+                <label class="option">
+                    <input type="radio" name="upload_mode" value="blind" checked>
+                    Upload blindly
+                </label>
 
-            <input 
-                type="file" 
-                id="file" 
-                name="file" 
+                <label class="option">
+                    <input type="radio" name="upload_mode" value="selected_company">
+                    Attach a selected Companies House company
+                </label>
+
+                <div id="company-picker" class="company-picker" hidden>
+                    <label for="company-search">Search company</label>
+                    <input
+                        type="search"
+                        id="company-search"
+                        autocomplete="off"
+                        placeholder="Company number or name"
+                    >
+
+                    <input
+                        type="hidden"
+                        id="selected-company-number"
+                        name="selected_company_number"
+                    >
+
+                    <div id="company-results" class="company-results"></div>
+                    <p id="selected-company" class="selected-company"></p>
+                </div>
+            </fieldset>
+
+            <label for="files">Choose PDF or HTML documents</label>
+            <input
+                type="file"
+                id="files"
+                name="files"
+                accept=".pdf,.html,text/html,application/pdf"
+                multiple
                 required
             >
 
-            <button type="submit">Upload</button>
+            <button type="submit">Upload and parse</button>
         </form>
 
-        <nav>
-            <a href="/">Home</a>
-        </nav>
+        <p class="status-note">Files are queued for parsing immediately after upload.</p>
+
+        <section id="upload-status" class="upload-status" hidden>
+            <div class="status-header">
+                <h2>Processing Status</h2>
+                <span id="batch-status" class="batch-status">Processing</span>
+            </div>
+            <div id="uploaded-files" class="uploaded-files"></div>
+        </section>
     </main>
+
+    <script>
+        const uploadForm = document.getElementById("upload-form");
+        const uploadStatus = document.getElementById("upload-status");
+        const batchStatus = document.getElementById("batch-status");
+        const uploadedFiles = document.getElementById("uploaded-files");
+        const companyPicker = document.getElementById("company-picker");
+        const companySearch = document.getElementById("company-search");
+        const companyResults = document.getElementById("company-results");
+        const selectedCompanyNumber = document.getElementById("selected-company-number");
+        const selectedCompany = document.getElementById("selected-company");
+
+        document.querySelectorAll("input[name='upload_mode']").forEach((input) => {
+            input.addEventListener("change", () => {
+                const shouldShowPicker = input.value === "selected_company" && input.checked;
+                companyPicker.hidden = !shouldShowPicker;
+
+                if (!shouldShowPicker) {
+                    selectedCompanyNumber.value = "";
+                    selectedCompany.textContent = "";
+                    companyResults.innerHTML = "";
+                }
+            });
+        });
+
+        let searchTimer = null;
+
+        companySearch.addEventListener("input", () => {
+            clearTimeout(searchTimer);
+
+            const query = companySearch.value.trim();
+
+            if (query.length < 2) {
+                companyResults.innerHTML = "";
+                return;
+            }
+
+            searchTimer = setTimeout(async () => {
+                const response = await fetch(`/uploads/companies?q=${encodeURIComponent(query)}`);
+                const companies = await response.json();
+
+                companyResults.innerHTML = "";
+
+                companies.forEach((company) => {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "company-result";
+                    button.textContent = `${company.company_number} - ${company.official_company_name}`;
+                    button.addEventListener("click", () => {
+                        selectedCompanyNumber.value = company.company_number;
+                        selectedCompany.textContent = button.textContent;
+                        companyResults.innerHTML = "";
+                        companySearch.value = "";
+                    });
+
+                    companyResults.appendChild(button);
+                });
+            }, 250);
+        });
+
+        function renderFiles(files) {
+            uploadedFiles.innerHTML = "";
+
+            files.forEach((file) => {
+                const item = document.createElement("article");
+                item.className = `uploaded-file uploaded-file-${file.status}`;
+
+                const title = document.createElement("h3");
+                title.textContent = file.filename;
+
+                const status = document.createElement("p");
+                status.className = "file-status";
+                status.textContent = `${file.status.replace("_", " ")} - ${file.message}`;
+
+                item.appendChild(title);
+                item.appendChild(status);
+
+                if (file.selected_company_number || file.extracted_company_number || file.pdf_metadata_company_number) {
+                    const details = document.createElement("dl");
+
+                    [
+                        ["Selected", file.selected_company_number, file.selected_company_name],
+                        ["Extracted", file.extracted_company_number, file.extracted_company_name],
+                        ["PDF metadata", file.pdf_metadata_company_number, file.pdf_metadata_company_name],
+                        ["Matched", file.matched_company_number, file.matched_company_name],
+                    ].forEach(([label, number, name]) => {
+                        if (!number && !name) {
+                            return;
+                        }
+
+                        const term = document.createElement("dt");
+                        term.textContent = label;
+
+                        const description = document.createElement("dd");
+                        description.textContent = [number, name].filter(Boolean).join(" - ");
+
+                        details.appendChild(term);
+                        details.appendChild(description);
+                    });
+
+                    item.appendChild(details);
+                }
+
+                uploadedFiles.appendChild(item);
+            });
+        }
+
+        async function pollStatus(statusUrl) {
+            const response = await fetch(statusUrl);
+            const statusPayload = await response.json();
+
+            batchStatus.textContent = statusPayload.status.replaceAll("_", " ");
+            batchStatus.dataset.status = statusPayload.status;
+            renderFiles(statusPayload.files);
+
+            if (statusPayload.status === "processing") {
+                setTimeout(() => pollStatus(statusUrl), 3000);
+            }
+        }
+
+        uploadForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            uploadStatus.hidden = false;
+            batchStatus.textContent = "uploading";
+            batchStatus.dataset.status = "processing";
+            uploadedFiles.innerHTML = "";
+
+            const formData = new FormData(uploadForm);
+            const response = await fetch(uploadForm.action, {
+                method: "POST",
+                body: formData,
+            });
+            const payload = await response.json();
+
+            if (!response.ok) {
+                batchStatus.textContent = "failed";
+                batchStatus.dataset.status = "completed_with_errors";
+                uploadedFiles.innerHTML = `<p class="error-message">${payload.detail || "Upload failed."}</p>`;
+                return;
+            }
+
+            batchStatus.textContent = "processing";
+            renderFiles(payload.uploaded.map((file) => ({
+                ...file,
+                status: "processing",
+                message: "Document is queued for parsing.",
+            })));
+
+            pollStatus(payload.status_url);
+        });
+    </script>
 </body>
 </html>
