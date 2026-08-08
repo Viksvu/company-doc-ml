@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_DATABASE_URL = "postgresql://postgres:2219@localhost:5432/company_app"
+DEFAULT_DATABASE_URL = "postgresql://postgres:2219@localhost:1234/company_app"
 
 
 def load_env_file() -> None:
