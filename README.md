@@ -175,34 +175,18 @@ and registered in `raw_documents`.
 
 ## Running Without `download_files.py`
 
-If another user obtains documents another way, place them somewhere under the
-project, for example:
+If another user obtains documents another way, they can still use the parser and
+matching pipeline. They must first insert rows into `raw_documents` with valid
+local `file_path`, `detected_file_type`, `download_status`, and
+`processing_status` values.
 
-```text
-data/raw/local/
-```
+Use these initial statuses:
 
-Then register them in `raw_documents`:
+- PDF - `processing_status = 'pdf_downloaded'`
+- HTML - `processing_status = 'html_detected'`
+- image - `processing_status = 'ready_for_ocr'`
 
-```bash
-python pipelines/register_local_documents.py data/raw/local --recursive
-```
-
-Optional source label:
-
-```bash
-python pipelines/register_local_documents.py data/raw/local --recursive --source external_batch
-```
-
-This script:
-
-- scans files or directories
-- detects PDF, HTML, JPG, and PNG
-- stores project-relative `file_path` values
-- uses the filename stem as `transaction_id`
-- sets the initial `processing_status`
-
-After registration, run the rest of the pipeline without the download step:
+Then run the rest of the pipeline without the download step:
 
 ```bash
 python pipelines/inspect_pdfs.py

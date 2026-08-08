@@ -28,7 +28,7 @@ load_env_file()
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+psycopg2://postgres:2219@localhost:5432/company_app",
+    "postgresql://postgres:1234@localhost:5432/company_app",
 )
 
 
@@ -48,8 +48,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
 
 
 

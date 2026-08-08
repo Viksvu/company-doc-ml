@@ -18,6 +18,7 @@ from fastapi import (
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.database import DATABASE_URL
 from app.database import get_db
 from app.models import UploadedFile
 
@@ -461,9 +462,7 @@ def run_uploaded_document_pipeline(raw_document_ids: list[int]) -> None:
     import psycopg2
     import match_document_companies
 
-    conn = psycopg2.connect(
-        "postgresql://postgres:2219@localhost:5432/company_app"
-    )
+    conn = psycopg2.connect(DATABASE_URL)
 
     try:
         for raw_document_id in raw_document_ids:
