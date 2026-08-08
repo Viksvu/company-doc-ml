@@ -466,6 +466,7 @@ def match_fuzzy_company_names(
     conn,
     candidate_threshold: float,
     auto_accept_threshold: float,
+    ambiguity_margin: float = DEFAULT_AMBIGUITY_MARGIN,
     raw_document_ids: list[int] | None = None,
 ) -> int:
     with conn.cursor() as cur:
@@ -490,12 +491,19 @@ def match_fuzzy_company_names(
                 candidate.company_id,
                 CASE
                     WHEN candidate.match_score >= %(auto_accept_threshold)s
+                         AND NOT candidate.is_ambiguous
                     THEN 'fuzzy_company_name_auto'
                     ELSE 'fuzzy_company_name_review'
                 END,
                 candidate.match_score,
-                candidate.match_score >= %(auto_accept_threshold)s,
-                candidate.match_score < %(auto_accept_threshold)s,
+                (
+                    candidate.match_score >= %(auto_accept_threshold)s
+                    AND NOT candidate.is_ambiguous
+                ),
+                (
+                    candidate.match_score < %(auto_accept_threshold)s
+                    OR candidate.is_ambiguous
+                ),
                 candidate.source_company_number,
                 candidate.source_company_name,
                 candidate.matched_company_number,
@@ -504,6 +512,14 @@ def match_fuzzy_company_names(
                     'source', 'company_name',
                     'candidate_threshold', %(candidate_threshold)s,
                     'auto_accept_threshold', %(auto_accept_threshold)s,
+                    'ambiguity_margin', %(ambiguity_margin)s,
+                    'is_ambiguous', candidate.is_ambiguous,
+                    'second_best_match_score',
+                    candidate.second_best_match_score,
+                    'second_best_company_number',
+                    candidate.second_best_company_number,
+                    'second_best_company_name',
+                    candidate.second_best_company_name,
                     'normalised_source_name',
                     normalise_company_name_for_match(candidate.source_company_name),
                     'normalised_matched_name',
@@ -512,56 +528,102 @@ def match_fuzzy_company_names(
                 NOW()
             FROM (
                 SELECT
-                    dm.raw_document_id,
-                    dm.company_number AS source_company_number,
-                    dm.company_name AS source_company_name,
-                    best.company_id,
-                    best.company_number AS matched_company_number,
-                    best.official_company_name AS matched_company_name,
-                    best.match_score
-                FROM document_metadata dm
-                LEFT JOIN document_company_matches existing_match
-                    ON existing_match.raw_document_id = dm.raw_document_id
-                   AND existing_match.manual_override = FALSE
-                   AND (
-                        existing_match.match_method LIKE 'exact%%'
-                        OR existing_match.match_method = 'selected_company_conflict'
-                   )
-                JOIN LATERAL (
+                    ranked.raw_document_id,
+                    ranked.source_company_number,
+                    ranked.source_company_name,
+                    ranked.company_id,
+                    ranked.matched_company_number,
+                    ranked.matched_company_name,
+                    ranked.match_score,
+                    ranked.second_best_match_score,
+                    ranked.second_best_company_number,
+                    ranked.second_best_company_name,
+                    (
+                        ranked.second_best_match_score IS NOT NULL
+                        AND ranked.match_score
+                            - ranked.second_best_match_score
+                            <= %(ambiguity_margin)s
+                    ) AS is_ambiguous
+                FROM (
                     SELECT
-                        c.id AS company_id,
-                        c.company_number,
-                        c.official_company_name,
-                        similarity(
-                            normalise_company_name_for_match(dm.company_name),
-                            normalise_company_name_for_match(c.official_company_name)
-                        ) AS match_score
-                    FROM companies c
-                    WHERE normalise_company_name_for_match(dm.company_name)
-                          %% normalise_company_name_for_match(c.official_company_name)
-                    ORDER BY
-                        match_score DESC,
-                        (c.company_status = 'Active') DESC,
-                        c.company_number
-                    LIMIT 1
-                ) best ON TRUE
-                WHERE existing_match.raw_document_id IS NULL
-                  AND (
-                        %(raw_document_ids)s IS NULL
-                        OR dm.raw_document_id = ANY(%(raw_document_ids)s)
-                  )
-                  AND dm.company_name IS NOT NULL
-                  AND normalise_company_name_for_match(dm.company_name)
-                      IS NOT NULL
-                  AND normalise_company_name_for_match(dm.company_name)
-                      !~ '^(AD01|AD03|AP01|AP03|AR01|AA01|AA06|CH01|CS01|DS01|IN01|MR01|MR04|NM01|PSC01|PSC04|PSC05|RPOQ|SH01|SH08|TM01)( |$)'
-                  AND dm.company_name !~* (
-                      'confirmation statement|appointment of director|'
-                      || 'termination of appointment|companies house|'
-                      || 'application to strike off'
-                  )
+                        fuzzy_candidates.*,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY raw_document_id
+                            ORDER BY
+                                match_score DESC,
+                                is_active_company DESC,
+                                matched_company_number
+                        ) AS candidate_rank,
+                        LEAD(match_score) OVER (
+                            PARTITION BY raw_document_id
+                            ORDER BY
+                                match_score DESC,
+                                is_active_company DESC,
+                                matched_company_number
+                        ) AS second_best_match_score,
+                        LEAD(matched_company_number) OVER (
+                            PARTITION BY raw_document_id
+                            ORDER BY
+                                match_score DESC,
+                                is_active_company DESC,
+                                matched_company_number
+                        ) AS second_best_company_number,
+                        LEAD(matched_company_name) OVER (
+                            PARTITION BY raw_document_id
+                            ORDER BY
+                                match_score DESC,
+                                is_active_company DESC,
+                                matched_company_number
+                        ) AS second_best_company_name
+                    FROM (
+                        SELECT
+                            dm.raw_document_id,
+                            dm.company_number AS source_company_number,
+                            dm.company_name AS source_company_name,
+                            c.id AS company_id,
+                            c.company_number AS matched_company_number,
+                            c.official_company_name AS matched_company_name,
+                            c.company_status = 'Active' AS is_active_company,
+                            similarity(
+                                normalise_company_name_for_match(dm.company_name),
+                                normalise_company_name_for_match(c.official_company_name)
+                            ) AS match_score
+                        FROM document_metadata dm
+                        LEFT JOIN document_company_matches existing_match
+                            ON existing_match.raw_document_id = dm.raw_document_id
+                           AND existing_match.manual_override = FALSE
+                           AND (
+                                existing_match.match_method LIKE 'exact%%'
+                                OR existing_match.match_method
+                                    = 'selected_company_conflict'
+                           )
+                        JOIN companies c
+                            ON normalise_company_name_for_match(dm.company_name)
+                               %% normalise_company_name_for_match(
+                                    c.official_company_name
+                               )
+                        WHERE existing_match.raw_document_id IS NULL
+                          AND (
+                                %(raw_document_ids)s IS NULL
+                                OR dm.raw_document_id
+                                    = ANY(%(raw_document_ids)s)
+                          )
+                          AND dm.company_name IS NOT NULL
+                          AND normalise_company_name_for_match(dm.company_name)
+                              IS NOT NULL
+                          AND normalise_company_name_for_match(dm.company_name)
+                              !~ '^(AD01|AD03|AP01|AP03|AR01|AA01|AA06|CH01|CS01|DS01|IN01|MR01|MR04|NM01|PSC01|PSC04|PSC05|RPOQ|SH01|SH08|TM01)( |$)'
+                          AND dm.company_name !~* (
+                              'confirmation statement|appointment of director|'
+                              || 'termination of appointment|companies house|'
+                              || 'application to strike off'
+                          )
+                    ) fuzzy_candidates
+                    WHERE fuzzy_candidates.match_score
+                        >= %(candidate_threshold)s
+                ) ranked
+                WHERE ranked.candidate_rank = 1
             ) candidate
-            WHERE candidate.match_score >= %(candidate_threshold)s
             ON CONFLICT (raw_document_id)
             DO UPDATE SET
                 company_id = EXCLUDED.company_id,
@@ -580,6 +642,7 @@ def match_fuzzy_company_names(
         """, {
             "candidate_threshold": candidate_threshold,
             "auto_accept_threshold": auto_accept_threshold,
+            "ambiguity_margin": ambiguity_margin,
             "raw_document_ids": raw_document_ids,
         })
 
@@ -638,6 +701,7 @@ def run_matching(
     auto_accept_threshold: float,
     exact_only: bool,
     dry_run: bool,
+    ambiguity_margin: float = DEFAULT_AMBIGUITY_MARGIN,
     raw_document_ids: list[int] | None = None,
 ) -> None:
     conn = psycopg2.connect(DATABASE_URL)
@@ -657,6 +721,7 @@ def run_matching(
                 conn=conn,
                 candidate_threshold=candidate_threshold,
                 auto_accept_threshold=auto_accept_threshold,
+                ambiguity_margin=ambiguity_margin,
                 raw_document_ids=raw_document_ids,
             )
 
@@ -729,6 +794,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--ambiguity-margin",
+        type=float,
+        default=DEFAULT_AMBIGUITY_MARGIN,
+        help=(
+            "Review fuzzy matches when the best and second-best scores "
+            "are this close or closer. "
+            f"Default: {DEFAULT_AMBIGUITY_MARGIN}."
+        ),
+    )
+    parser.add_argument(
         "--exact-only",
         action="store_true",
         help="Only run exact company-number matching.",
@@ -756,6 +831,7 @@ def main() -> None:
         auto_accept_threshold=args.auto_accept_threshold,
         exact_only=args.exact_only,
         dry_run=args.dry_run,
+        ambiguity_margin=args.ambiguity_margin,
     )
 
 

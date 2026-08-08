@@ -258,6 +258,7 @@ python pipelines/match_document_companies.py --exact-only
 python pipelines/match_document_companies.py --dry-run
 python pipelines/match_document_companies.py --candidate-threshold 0.75
 python pipelines/match_document_companies.py --auto-accept-threshold 0.90
+python pipelines/match_document_companies.py --ambiguity-margin 0.03
 ```
 
 Options:
@@ -265,7 +266,12 @@ Options:
 - `--exact-only` - only match by exact company number.
 - `--dry-run` - run matching and roll back changes at the end.
 - `--candidate-threshold` - minimum trigram similarity for fuzzy candidates.
-- `--auto-accept-threshold` - fuzzy matches at or above this score are accepted automatically.
+- `--auto-accept-threshold` - fuzzy matches at or above this score can be accepted automatically.
+- `--ambiguity-margin` - send fuzzy matches to review when the best and second-best company-name scores are this close or closer.
+
+Exact company-number matches are accepted first. Fuzzy company-name matches are
+auto-accepted only when the best score is above the auto-accept threshold and is
+not too close to the second-best candidate.
 
 Matching writes to:
 

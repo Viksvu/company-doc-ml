@@ -149,3 +149,27 @@ def test_exact_database_match_accepts_optional_raw_document_scope():
 
     assert "dm.raw_document_id = ANY(%(raw_document_ids)s)" in sql
     assert params == {"raw_document_ids": [101, 102]}
+
+
+def test_fuzzy_database_match_checks_second_best_candidate_for_ambiguity():
+    conn = RecordingConnection()
+
+    matcher.match_fuzzy_company_names(
+        conn,
+        candidate_threshold=0.75,
+        auto_accept_threshold=0.90,
+        ambiguity_margin=0.03,
+        raw_document_ids=[101],
+    )
+
+    _, set_limit_params = conn.cursor_instance.calls[0]
+    sql, params = conn.cursor_instance.calls[1]
+
+    assert set_limit_params == (0.75,)
+    assert "LEAD(match_score)" in sql
+    assert "second_best_match_score" in sql
+    assert "ranked.match_score" in sql
+    assert "<= %(ambiguity_margin)s" in sql
+    assert "AND NOT candidate.is_ambiguous" in sql
+    assert params["ambiguity_margin"] == 0.03
+    assert params["raw_document_ids"] == [101]
